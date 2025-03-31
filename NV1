@@ -1,0 +1,152 @@
+#include "Leanbot.h"
+
+const int time_delay = 100;
+const int threshold = 50;
+
+void setup() {
+    Leanbot.begin();
+    Serial.begin(9600);
+}
+
+/***************************************************************************************************************
+ * The common part 
+ * -> TurnRight and Turn Left (int speed, int angle)
+ * -> FollowLine (int speed)
+ * -> Grip (int unit_angle)
+ * -> CheckEmptySlot()
+ ***************************************************************************************************************/
+void TurnRight(int speed, int angle) {
+    LbMotion.runLR(speed, -speed);
+    LbMotion.waitRotationDeg(angle);
+    LbMotion.stopAndWait();
+    LbDelay(time_delay);
+}
+
+void TurnLeft(int speed, int angle) {
+    LbMotion.runLR(-speed, speed);
+    LbMotion.waitRotationDeg(angle);
+    LbMotion.stopAndWait();
+    LbDelay(time_delay);
+}
+
+void MoveForward(int speed, int distance) {
+    LbMotion.runLR(speed, speed);
+    LbMotion.waitDistanceMm(distance);
+    LbMotion.stopAndWait();
+}
+
+void FollowLine(int speed) {
+    int speed_0 = 0;
+    int speed_2 = 0.4 * speed;
+    int speed_3 = 0.6 * speed;
+    byte line = LbIRLine.read(threshold);
+    LbIRLine.println(line);
+
+    static int lostLineCount = 0;
+    
+    if (line == 0b0000) { 
+        lostLineCount++;
+        if (lostLineCount < 10) {  
+            LbMotion.runLR(speed, speed);
+        } else {  
+            if (Leanbot.pingMm() > 100) { 
+                LbMotion.runLR(speed, speed); 
+            } else {  
+                LbMotion.runLR(speed_0, speed_0);
+            }
+        }
+    } else if (line == 0b1111) { 
+        lostLineCount++;
+        if (lostLineCount < 5) { 
+            LbMotion.runLR(speed, speed); 
+        } else { 
+            LbMotion.runLR(speed_0, speed_0); 
+        }
+    } else {  
+        lostLineCount = 0; 
+        switch (line) {
+            case 0b0110: LbMotion.runLR(speed, speed); break;
+            case 0b0010: LbMotion.runLR(speed, speed_3); break;
+            case 0b0011: LbMotion.runLR(speed, speed_2); break;
+            case 0b0001: LbMotion.runLR(speed, speed_0); break;
+            case 0b0100: LbMotion.runLR(speed_3, speed); break;
+            case 0b1100: LbMotion.runLR(speed_2, speed); break;
+            case 0b1000: LbMotion.runLR(speed_0, speed); break;
+        }
+    }
+}
+
+bool CheckEmptySlot() {
+    return Leanbot.pingMm() > 50;
+}
+
+void Grip(int time_angle) {
+    for (int i = 0; i <= 90; i += 10) {
+        LbGripper.moveToLR(i, i, time_angle);
+    }
+    LbMotion.stopAndWait();
+    LbDelay(time_delay);
+}
+
+void PlaceObject(int time_angle) {
+    for (int i = 90; i >= 0; i -= 10) {
+        LbGripper.moveToLR(i, i, time_angle);
+    }
+    LbMotion.stopAndWait();
+    LbDelay(time_delay);
+}
+
+/***************************************************************************************************************
+ * Task 1: Moving Leanbot to the base, scanning for empty slots, retrieving a wooden plank, and placing it.
+ **************************************************************************************************************/
+class NhiemVu1 {
+private:
+    int speed_turn = 500;
+    int speed_fl = 500;
+    int speed_run = 800;
+    int time_angle_unit = 500;
+    int angle = 90;
+    unsigned int distance_forward = 50;
+    int emptySlots[4];
+    int slotCount = 0;
+
+public:
+    void ScanBase();
+    void Processing();
+};
+
+void NhiemVu1::ScanBase() {
+    slotCount = 0;
+    for (int i = 0; i < 4; i++) {
+        if (CheckEmptySlot()) {
+            emptySlots[slotCount++] = i;
+        }
+        TurnRight(speed_turn, angle);
+    }
+}
+
+void NhiemVu1::Processing() {
+    FollowLine(speed_fl);
+    MoveForward(speed_run, distance_forward);
+    ScanBase();
+
+    TurnRight(speed_turn, 180);
+    FollowLine(speed_fl);
+    MoveForward(speed_run, distance_forward);
+    Grip(time_angle_unit);
+
+    TurnRight(speed_turn, 180);
+    FollowLine(speed_fl);
+    MoveForward(speed_run, distance_forward);
+
+    if (slotCount > 0) {
+        TurnRight(speed_turn, emptySlots[0] * angle);
+        PlaceObject(time_angle_unit);
+        TurnLeft(speed_turn, emptySlots[0] * angle);
+    }
+}
+
+void loop() {
+    NhiemVu1 nv1;
+    nv1.Processing();
+}
